@@ -84,15 +84,15 @@ def check_response(response):
 def parse_status(homeworks):
     """Check the homework status."""
     try:
-        "homework_name" in homeworks == True
-        homework_name = homeworks["homework_name"]
-        logger.info("Ключ homework_name подтвержден")
+        if "homework_name" in homeworks is True:
+            homework_name = homeworks["homework_name"]
+            logger.info("Ключ homework_name подтвержден")
     except KeyError:
         logger.error("Ключ homework_name отсутствует")
     try:
-        "status" in homeworks == True
-        homework_status = homeworks["status"]
-        logger.info("Ключ status подтвержден")
+        if "status" in homeworks is True:
+            homework_status = homeworks["status"]
+            logger.info("Ключ status подтвержден")
     except KeyError:
         logger.error("Ключ status отсутствует")
     try:
