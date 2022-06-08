@@ -71,7 +71,6 @@ def check_response(response):
                and homeworks['current_date']) is not None:
                 logger.info('Ключи homeworks и current_date подтверждены',
                             exc_info=True)
-                return homeworks
             raise ValueError('Данные отсутствуют')
     except KeyError:
         logger.error("Неверный индекс", exc_info=True)
@@ -81,25 +80,25 @@ def check_response(response):
     return homeworks
 
 
-def parse_status(homeworks):
+def parse_status(homework):
     """Check the homework status."""
     try:
-        if "homework_name" in homeworks is True:
-            homework_name = homeworks["homework_name"]
-            logger.info("Ключ homework_name подтвержден")
+        homework_status = homework['status']
+        logger.info("Ключ status подтвержден")
     except KeyError:
-        logger.error("Ключ homework_name отсутствует")
+        logger.error(f"Ключ status отсутствует, {homework}")
+        raise
     try:
-        if "status" in homeworks is True:
-            homework_status = homeworks["status"]
-            logger.info("Ключ status подтвержден")
+        homework_name = homework['homework_name']
+        logger.info("Ключ homework_name подтвержден")
     except KeyError:
-        logger.error("Ключ status отсутствует")
+        logger.error(f"Ключ homework_name отсутствует, {homework}")
+        raise
     try:
-        if homework_status in HOMEWORK_VERDICTS:
-            verdict = HOMEWORK_VERDICTS[homework_status]
+        verdict = HOMEWORK_VERDICTS[homework_status]
     except ValueError:
         logger.error("Неизвестный статус", exc_info=True)
+        raise
 
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
