@@ -93,10 +93,13 @@ def check_response(response):
 
 def parse_status(homework):
     """Check the homework status."""
-    homework_status = homework.get('status')
-    logger.info("Ключ status подтвержден")
-    homework_name = homework.get('homework_name')
-    logger.info("Ключ homework_name подтвержден")
+    try:
+        homework_status = homework.get('status')
+        logger.info("Ключ status подтвержден")
+        homework_name = homework.get('homework_name')
+        logger.info("Ключ homework_name подтвержден")
+    except KeyError:
+        raise
     try:
         verdict = HOMEWORK_VERDICTS[homework_status]
     except ValueError:
