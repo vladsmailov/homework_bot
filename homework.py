@@ -7,12 +7,13 @@ import sys
 import requests
 import time
 from http import HTTPStatus
+from json import JSONDecodeError
 
 from telegram import Bot
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 
-from users_exsceptions import AbsenceOfRequiredVariables
+from users_exsceptions import AbsenceOfRequiredVariables, CanNotSendMessage
 
 load_dotenv()
 
@@ -42,22 +43,33 @@ HOMEWORK_VERDICTS = {
 
 def send_message(bot, message):
     """Send homework status to your telegram."""
-    bot.send_message(TELEGRAM_CHAT_ID, message)
-    logger.info("Сообщение отправлено успешно", exc_info=True)
+    try:
+        bot.send_message(TELEGRAM_CHAT_ID, message)
+        logger.info("Сообщение отправлено успешно", exc_info=True)
+    except CanNotSendMessage:
+        logger.error("Сообщение не отправлено")
+        sys.exit(1)
 
 
 def get_api_answer(current_timestamp):
     """Create a request to an api resource."""
-    timestamp = current_timestamp
-    params = {"from_date": timestamp}
-    response = requests.get(url=ENDPOINT, headers=HEADERS, params=params)
-    logger.info(f"Статус запроса {response.status_code}, params = {params}")
-    try:
-        if response.status_code == HTTPStatus.OK:
-            return response.json()
-        raise requests.JSONDecodeError
-    except Exception:
+    response_params = dict(
+        url=ENDPOINT,
+        headers=HEADERS,
+        params={"from_date": current_timestamp}
+    )
+    response = requests.get(**response_params)
+    logger.info(
+        f"Статус запроса {response.status_code},"
+        f" url={response_params['url']},"
+        f" params={response_params['params']}"
+    )
+    if response.status_code != HTTPStatus.OK:
         response.raise_for_status()
+    try:
+        return response.json()
+    except JSONDecodeError:
+        raise
 
 
 def check_response(response):
@@ -65,50 +77,41 @@ def check_response(response):
     if not isinstance(response, dict):
         raise TypeError("Результатом запроса должен быть словарь")
     try:
-        homeworks = response.get('homeworks', 'current_date')
-        if ('homeworks' and 'current_date') in homeworks:
-            if (homeworks['homeworks']
-               and homeworks['current_date']) is not None:
+        homeworks = response.get('homeworks')
+        if 'homeworks' in homeworks and 'current_date' in homeworks:
+            if (homeworks['homeworks'] is not None
+               and homeworks['current_date'] is not None):
                 logger.info('Ключи homeworks и current_date подтверждены',
                             exc_info=True)
             raise ValueError('Данные отсутствуют')
     except KeyError:
         logger.error("Неверный индекс", exc_info=True)
     if not isinstance(homeworks, list):
-        logger.error("Неверный формат данных", exc_info=True)
         raise TypeError("Неверный формат данных")
     return homeworks
 
 
 def parse_status(homework):
     """Check the homework status."""
-    try:
-        homework_status = homework['status']
-        logger.info("Ключ status подтвержден")
-    except KeyError:
-        logger.error(f"Ключ status отсутствует, {homework}")
-        raise
-    try:
-        homework_name = homework['homework_name']
-        logger.info("Ключ homework_name подтвержден")
-    except KeyError:
-        logger.error(f"Ключ homework_name отсутствует, {homework}")
-        raise
+    homework_status = homework.get('status')
+    logger.info("Ключ status подтвержден")
+    homework_name = homework.get('homework_name')
+    logger.info("Ключ homework_name подтвержден")
     try:
         verdict = HOMEWORK_VERDICTS[homework_status]
     except ValueError:
         logger.error("Неизвестный статус", exc_info=True)
         raise
-
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def check_tokens():
     """Check that the parameters are not None."""
     try:
-        return (PRACTICUM_TOKEN and TELEGRAM_TOKEN and TELEGRAM_CHAT_ID)
+        return all([PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID])
     except AbsenceOfRequiredVariables:
         logger.critical("Отсутствует необходимая переменная", exc_info=True)
+        raise
 
 
 def main():
@@ -116,6 +119,8 @@ def main():
     current_timestamp = 0
     bot = Bot(token=TELEGRAM_TOKEN)
     if check_tokens() is False:
+        message = "Отсутствует один из ключей"
+        logger.critical("Отсутствует один из ключей", exc_info=True)
         sys.exit()
     while True:
         try:
@@ -124,17 +129,14 @@ def main():
             homeworks = check_response(response)
             message = parse_status(homeworks[0])
             send_message(bot, message)
-            time.sleep(RETRY_TIME)
 
         except Exception as error:
             message = f"Сбой в работе программы: {error}"
             logger.error("Сбой в работе программы", exc_info=True)
             send_message(bot, message)
+
+        finally:
             time.sleep(RETRY_TIME)
-        else:
-            message = "Отсутствует один из ключей"
-            logger.critical("Отсутствует один из ключей", exc_info=True)
-            sys.exit(1)
 
 
 if __name__ == "__main__":

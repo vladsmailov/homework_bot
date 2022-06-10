@@ -7,6 +7,12 @@ class GetIncorrectAnswer(Exception):
 
 
 class AbsenceOfRequiredVariables(Exception):
-    """Rises in the absence of one of the necessary variables."""
+    """Raises in the absence of one of the necessary variables."""
+
+    pass
+
+
+class CanNotSendMessage(Exception):
+    """Raises when bot can't send message."""
 
     pass
