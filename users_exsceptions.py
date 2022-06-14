@@ -12,7 +12,7 @@ class AbsenceOfRequiredVariables(Exception):
     pass
 
 
-class CanNotSendMessage(Exception):
-    """Raises when bot can't send message."""
+class NotForSend(Exception):
+    """Raises when bot should not send a message."""
 
     pass

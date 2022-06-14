@@ -9,11 +9,11 @@ import time
 from http import HTTPStatus
 from json import JSONDecodeError
 
-from telegram import Bot
+from telegram import Bot, TelegramError
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 
-from users_exsceptions import GetIncorrectAnswer
+from users_exsceptions import NotForSend
 
 load_dotenv()
 
@@ -45,9 +45,10 @@ def send_message(bot, message):
     """Send homework status to your telegram."""
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
-        logger.info("Сообщение отправлено успешно")
-    except Exception:
+    except TelegramError:
         logger.error("Сообщение не отправлено", exc_info=True)
+    else:
+        logger.info("Сообщение отправлено успешно")
 
 
 def get_api_answer(current_timestamp):
@@ -60,26 +61,11 @@ def get_api_answer(current_timestamp):
     try:
         response = requests.get(**response_params)
         if response.status_code != HTTPStatus.OK:
-            logger.error(
-                f"Статус запроса {response.status_code},"
-                f" url={response_params['url']},"
-                f" params={response_params['params']}"
-            )
-            raise GetIncorrectAnswer
+            raise NotForSend
         return response.json()
     except requests.RequestException:
-        logger.error(
-            f"Сетевая ошибка"
-            f" url={response_params['url']},"
-            f" params={response_params['params']}"
-        )
         raise
     except JSONDecodeError:
-        logger.error(
-            f"Неверный формат данных,"
-            f" url={response_params['url']},"
-            f" params={response_params['params']}"
-        )
         raise
 
 
@@ -88,28 +74,22 @@ def check_response(response):
     if not isinstance(response, dict):
         raise TypeError("Результатом запроса должен быть словарь")
     homeworks = response.get('homeworks')
+    if homeworks is None or 'current_date' not in response:
+        raise NotForSend
     if not isinstance(homeworks, list):
         raise TypeError("Неверный формат данных")
-    if 'homeworks' not in response or 'current_date' not in response:
-        raise KeyError
-    if (response['homeworks'] is not None
-            and response['current_date'] is not None):
-        return homeworks
-    raise ValueError('Данные отсутствуют')
+    return homeworks
 
 
 def parse_status(homework):
     """Check the homework status."""
-    try:
-        homework_status = homework['status']
-        homework_name = homework['homework_name']
-    except KeyError:
-        raise
-    try:
-        verdict = HOMEWORK_VERDICTS[homework_status]
-    except ValueError:
-        logger.error("Неизвестный статус", exc_info=True)
-        raise
+    homework_status = homework.get('status')
+    homework_name = homework.get('homework_name')
+    if homework_name is None and homework_status is None:
+        raise NotForSend
+    verdict = HOMEWORK_VERDICTS.get(homework_status)
+    if verdict is None:
+        raise KeyError
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
@@ -120,24 +100,30 @@ def check_tokens():
 
 def main():
     """Основная логика работы бота."""
-    if check_tokens() is False:
+    if check_tokens() is not True:
         message = "Отсутствует один из ключей"
         logger.critical("Отсутствует один из ключей", exc_info=True)
         sys.exit(1)
+    current_timestamp = 0
     while True:
-        current_timestamp = 0
         bot = Bot(token=TELEGRAM_TOKEN)
         try:
             response = get_api_answer(current_timestamp)
             current_timestamp = response.get("current_date")
             homeworks = check_response(response)
-            message = parse_status(homeworks[0])
+            if homeworks:
+                message = parse_status(homeworks[0])
+            else:
+                message = 'Список домашних работ пуст'
+            send_message(bot, message)
+        except NotForSend:
+            logger.error("Сбой в работе программы", exc_info=True)
         except Exception as error:
             message = f"Сбой в работе программы: {error}"
             logger.error("Сбой в работе программы", exc_info=True)
-
-        send_message(bot, message)
-        time.sleep(RETRY_TIME)
+            send_message(bot, message)
+        finally:
+            time.sleep(RETRY_TIME)
 
 
 if __name__ == "__main__":
