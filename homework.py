@@ -3,6 +3,7 @@
 import logging
 import os
 import sys
+from urllib.error import HTTPError
 
 import requests
 import time
@@ -46,7 +47,7 @@ def send_message(bot, message):
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
     except TelegramError:
-        logger.error("Сообщение не отправлено", exc_info=True)
+        raise NotForSend
     else:
         logger.info("Сообщение отправлено успешно")
 
@@ -61,11 +62,33 @@ def get_api_answer(current_timestamp):
     try:
         response = requests.get(**response_params)
         if response.status_code != HTTPStatus.OK:
-            raise NotForSend
-        return response.json()
-    except requests.RequestException:
-        raise
-    except JSONDecodeError:
+            logger.error(
+                response_params["url"],
+                response.status_code,
+                response_params["params"]
+            )
+            raise HTTPError(
+                None,
+                response.status_code,
+                'Нет доступа к ресурсу',
+                None,
+                None
+            )
+        try:
+            return response.json()
+        except JSONDecodeError:
+            logger.error(
+                response_params["url"],
+                response.status_code,
+                response_params["params"]
+            )
+            raise
+    except ConnectionError:
+        logger.error(
+            response_params["url"],
+            response.status_code,
+            response_params["params"]
+        )
         raise
 
 
@@ -74,10 +97,14 @@ def check_response(response):
     if not isinstance(response, dict):
         raise TypeError("Результатом запроса должен быть словарь")
     homeworks = response.get('homeworks')
-    if homeworks is None or 'current_date' not in response:
+    if homeworks is None:
+        logger.error("Отсутствуют данные по домашним работам")
+        raise KeyError
+    if 'current_date' not in response:
+        logger.error("Отсутствует ключ current_date")
         raise NotForSend
     if not isinstance(homeworks, list):
-        raise TypeError("Неверный формат данных")
+        raise TypeError("Несоответствующий формат данных запроса")
     return homeworks
 
 
@@ -85,10 +112,12 @@ def parse_status(homework):
     """Check the homework status."""
     homework_status = homework.get('status')
     homework_name = homework.get('homework_name')
-    if homework_name is None and homework_status is None:
-        raise NotForSend
+    if homework_name is None:
+        logger.error("Отсутствуют данные по запросу")
+        raise KeyError
     verdict = HOMEWORK_VERDICTS.get(homework_status)
     if verdict is None:
+        logger.error("Неизвестный статус")
         raise KeyError
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
@@ -104,13 +133,13 @@ def main():
         message = "Отсутствует один из ключей"
         logger.critical("Отсутствует один из ключей", exc_info=True)
         sys.exit(1)
-    current_timestamp = 0
+    current_timestamp = int(time.time())
     while True:
         bot = Bot(token=TELEGRAM_TOKEN)
         try:
             response = get_api_answer(current_timestamp)
-            current_timestamp = response.get("current_date")
             homeworks = check_response(response)
+            current_timestamp = response.get("current_date")
             if homeworks:
                 message = parse_status(homeworks[0])
             else:
