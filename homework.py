@@ -3,7 +3,6 @@
 import logging
 import os
 import sys
-from urllib.error import HTTPError
 
 import requests
 import time
@@ -14,7 +13,7 @@ from telegram import Bot, TelegramError
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 
-from users_exsceptions import NotForSend
+from users_exceptions import NotForSend, GetIncorrectAnswer
 
 load_dotenv()
 
@@ -46,50 +45,37 @@ def send_message(bot, message):
     """Send homework status to your telegram."""
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
-    except TelegramError:
-        raise NotForSend
+    except TelegramError as e:
+        raise NotForSend(message) from e
     else:
         logger.info("Сообщение отправлено успешно")
 
 
 def get_api_answer(current_timestamp):
     """Create a request to an api resource."""
-    response_params = dict(
+    requests_params = dict(
         url=ENDPOINT,
-        headers=HEADERS,
         params={"from_date": current_timestamp}
     )
     try:
-        response = requests.get(**response_params)
-        if response.status_code != HTTPStatus.OK:
-            logger.error(
-                response_params["url"],
-                response.status_code,
-                response_params["params"]
-            )
-            raise HTTPError(
-                None,
-                response.status_code,
-                'Нет доступа к ресурсу',
-                None,
-                None
-            )
-        try:
-            return response.json()
-        except JSONDecodeError:
-            logger.error(
-                response_params["url"],
-                response.status_code,
-                response_params["params"]
-            )
-            raise
-    except ConnectionError:
-        logger.error(
-            response_params["url"],
-            response.status_code,
-            response_params["params"]
+        response = requests.get(headers=HEADERS, **requests_params)
+    except Exception as e:
+        raise GetIncorrectAnswer(requests_params) from e
+
+    if response.status_code != HTTPStatus.OK:
+        raise GetIncorrectAnswer(
+            'Несоответствующий код ответа',
+            requests_params,
+            response.status_code
         )
-        raise
+    try:
+        return response.json()
+    except JSONDecodeError as e:
+        raise GetIncorrectAnswer(
+            'Несоответствующий формат данных',
+            requests_params,
+            response.status_code
+        ) from e
 
 
 def check_response(response):
@@ -98,11 +84,9 @@ def check_response(response):
         raise TypeError("Результатом запроса должен быть словарь")
     homeworks = response.get('homeworks')
     if homeworks is None:
-        logger.error("Отсутствуют данные по домашним работам")
-        raise KeyError
+        raise KeyError("Отсутствуют данные по домашним работам")
     if 'current_date' not in response:
-        logger.error("Отсутствует ключ current_date")
-        raise NotForSend
+        raise NotForSend("Отсутствует ключ current_date")
     if not isinstance(homeworks, list):
         raise TypeError("Несоответствующий формат данных запроса")
     return homeworks
@@ -113,12 +97,10 @@ def parse_status(homework):
     homework_status = homework.get('status')
     homework_name = homework.get('homework_name')
     if homework_name is None:
-        logger.error("Отсутствуют данные по запросу")
-        raise KeyError
+        raise KeyError("Отсутствуют данные по запросу")
     verdict = HOMEWORK_VERDICTS.get(homework_status)
     if verdict is None:
-        logger.error("Неизвестный статус")
-        raise KeyError
+        raise KeyError("Неизвестный статус")
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
