@@ -59,7 +59,7 @@ def get_api_answer(current_timestamp):
     )
     try:
         response = requests.get(headers=HEADERS, **requests_params)
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         raise GetIncorrectAnswer(requests_params) from e
 
     if response.status_code != HTTPStatus.OK:
@@ -111,7 +111,7 @@ def check_tokens():
 
 def main():
     """Основная логика работы бота."""
-    if check_tokens() is not True:
+    if not check_tokens():
         message = "Отсутствует один из ключей"
         logger.critical("Отсутствует один из ключей", exc_info=True)
         sys.exit(1)

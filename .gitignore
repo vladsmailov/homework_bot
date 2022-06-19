@@ -54,6 +54,7 @@ check_response.py
 check_tokens.py
 get_api_answer.py
 venv_bot
+users_exsceptions.py
 
 # Translations
 *.mo
